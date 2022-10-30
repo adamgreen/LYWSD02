@@ -25,7 +25,7 @@ static void displayUsage(void)
            "Usage: LYWSD02 [Celsius | C | Fahrenheit | F]\n"
            "Where:\n"
            "  Celsius or C sets temperature display to be in Celsius.\n"
-           "  Fahrenheight or F sets temperature display to be in Fahrenheit.\n"
+           "  Fahrenheit or F sets temperature display to be in Fahrenheit.\n"
            "\n"
            "  The device's time will always be updated to match the current local time\n"
            "  even if temperature setting is left blank.\n");
