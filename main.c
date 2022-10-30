@@ -22,10 +22,10 @@
 static void displayUsage(void)
 {
     printf("\n"
-           "Usage: LYWSD02 [Celcius | C | Fahrenheit | F]\n"
+           "Usage: LYWSD02 [Celsius | C | Fahrenheit | F]\n"
            "Where:\n"
-           "  Celcius or C sets temperature display to be in Celcius.\n"
-           "  Fahrenheight or F sets temperature display to be in Fahrenheit.\n"
+           "  Celsius or C sets temperature display to be in Celsius.\n"
+           "  Fahrenheit or F sets temperature display to be in Fahrenheit.\n"
            "\n"
            "  The device's time will always be updated to match the current local time\n"
            "  even if temperature setting is left blank.\n");
@@ -38,8 +38,8 @@ typedef enum TemperatureUnits
 {
     // No temperature units were specified on command line so leave as is.
     NONE,
-    // Celcius units should be used.
-    CELCIUS,
+    // Celsius units should be used.
+    CELSIUS,
     // Fahrenheit units should be used.
     FAHRENHEIT
 } TemperatureUnits;
@@ -85,9 +85,9 @@ static int parseCommandLine(CommandLineParams* pParams, int argc, char** ppArgs)
     while (argc && result == 0)
     {
         const char* pArg = *ppArgs;
-        if (0 == strcasecmp(pArg, "celcius") || 0 == strcasecmp(pArg, "c"))
+        if (0 == strcasecmp(pArg, "celsius") || 0 == strcasecmp(pArg, "c"))
         {
-            pParams->tempUnits = CELCIUS;
+            pParams->tempUnits = CELSIUS;
         }
         else if (0 == strcasecmp(pArg, "fahrenheit") || 0 == strcasecmp(pArg, "f"))
         {
@@ -132,10 +132,10 @@ void workerMain(void)
         printf("BLE transmit returned error: %d\n", result);
     }
 
-    if (g_params.tempUnits == CELCIUS)
+    if (g_params.tempUnits == CELSIUS)
     {
-        printf("Setting temperature units to Celcius...\n");
-        result = bleSetToCelcius();
+        printf("Setting temperature units to Celsius...\n");
+        result = bleSetToCelsius();
     }
     else if (g_params.tempUnits == FAHRENHEIT)
     {

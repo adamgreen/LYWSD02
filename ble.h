@@ -42,7 +42,7 @@ void workerMain(void);
 int bleConnect(const char* pName);
 int bleDisconnect();
 int bleSetToCurrentTime();
-int bleSetToCelcius();
+int bleSetToCelsius();
 int bleSetToFahrenheit();
 
 #endif // BLE_H_
