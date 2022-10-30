@@ -514,10 +514,10 @@ int bleSetToCurrentTime()
     return [g_appDelegate error];
 }
 
-static int setTemperatureUnits(BOOL celcius)
+static int setTemperatureUnits(BOOL celsius)
 {
     uint8_t packetData[1];
-    packetData[0] = celcius ? 0x00 : 0x01;
+    packetData[0] = celsius ? 0x00 : 0x01;
 
     NSData* p = [NSData dataWithBytesNoCopy:(void*)packetData length:sizeof(packetData) freeWhenDone:NO];
     if (!p)
@@ -529,7 +529,7 @@ static int setTemperatureUnits(BOOL celcius)
     return [g_appDelegate error];
 }
 
-int bleSetToCelcius()
+int bleSetToCelsius()
 {
     return setTemperatureUnits(TRUE);
 }
