@@ -47,10 +47,11 @@ static void* workerThread(void* pArg);
     CBPeripheral*       peripheral;
     CBCharacteristic*   timeWriteCharacteristic;
     CBCharacteristic*   tempUnitsWriteCharacteristic;
+    NSMutableArray*     discoveredPeripherals;
 
     int                 error;
     int32_t             characteristicsToFind;
-    BOOL                autoConnect;
+    BOOL                isScanning;
     BOOL                isBlePowerOn;
     BOOL                scanOnBlePowerOn;
     BOOL                writeCompleted;
@@ -65,7 +66,11 @@ static void* workerThread(void* pArg);
 - (id) initForApp:(NSApplication*) app;
 - (int) error;
 - (void) clearPeripheral;
-- (void) handleDeviceConnect:(id) deviceName;
+- (void) handleScanStart:(id) dummy;
+- (void) handleScanStop:(id) dummy;
+- (int) deviceCount;
+- (NSString*) deviceIdAtIndex:(int) index;
+- (void) handleDeviceConnect:(id) deviceIndex;
 - (void) foundCharacteristic;
 - (void) signalConnectionError;
 - (void) waitForConnectToComplete;
@@ -108,6 +113,7 @@ static void* workerThread(void* pArg);
     if (writeCompleteConditionResult)
         goto Error;
 
+    discoveredPeripherals = [[NSMutableArray alloc] init];
     [app setDelegate:self];
     return self;
 
@@ -149,6 +155,8 @@ Error:
     // Free up resources here rather than dealloc which doesn't appear to be called during NSApplication shutdown.
     [manager release];
     manager = nil;
+    [discoveredPeripherals release];
+    discoveredPeripherals = nil;
 
     pthread_cond_destroy(&connectCondition);
     pthread_mutex_destroy(&connectMutex);
@@ -174,13 +182,50 @@ Error:
     pthread_cond_signal(&connectCondition);
 }
 
-// Handle device connection request posted to the main thread by the worker thread.
-- (void) handleDeviceConnect:(id) deviceName
+// Handle scan start request posted to the main thread by the worker thread.
+// Every LYWSD02 device discovered until handleScanStop: is called gets remembered in discoveredPeripherals.
+- (void) handleScanStart:(id) dummy
 {
-    error = BLE_ERROR_NONE;
-    autoConnect = TRUE;
-    characteristicsToFind = 2;
+    [discoveredPeripherals removeAllObjects];
+    isScanning = TRUE;
     [self startScan];
+}
+
+// Handle scan stop request posted to the main thread by the worker thread.
+- (void) handleScanStop:(id) dummy
+{
+    isScanning = FALSE;
+    scanOnBlePowerOn = FALSE;
+    if (isBlePowerOn)
+        [self stopScan];
+}
+
+// The worker thread calls this selector to get the number of LYWSD02 devices found by the last scan.
+- (int) deviceCount
+{
+    return (int)[discoveredPeripherals count];
+}
+
+// The worker thread calls this selector to get the identifier of a device found by the last scan.
+- (NSString*) deviceIdAtIndex:(int) index
+{
+    CBPeripheral* aPeripheral = [discoveredPeripherals objectAtIndex:index];
+    return [aPeripheral.identifier UUIDString];
+}
+
+// Handle device connection request posted to the main thread by the worker thread.
+// Connects to the device at the given index in the list of devices found by the last scan.
+- (void) handleDeviceConnect:(id) deviceIndex
+{
+    int index = [(NSNumber*)deviceIndex intValue];
+
+    error = BLE_ERROR_NONE;
+    characteristicsToFind = 2;
+    timeWriteCharacteristic = nil;
+    tempUnitsWriteCharacteristic = nil;
+    peripheral = [discoveredPeripherals objectAtIndex:index];
+    [peripheral retain];
+    [manager connectPeripheral:peripheral options:nil];
 }
 
 // Request CBCentralManager to scan for BLEUART devices via the service that it broadcasts.
@@ -210,15 +255,10 @@ Error:
         return;
     }
 
-    // If the user wants to connect to first discovered device then issue connection request now.
-    if (autoConnect)
+    // Remember each device once, they will be connected to one after the other after the scan has completed.
+    if (isScanning && ![discoveredPeripherals containsObject:aPeripheral])
     {
-        // Connect to first device found.
-        [self stopScan];
-        autoConnect = FALSE;
-        peripheral = aPeripheral;
-        [peripheral retain];
-        [manager connectPeripheral:peripheral options:nil];
+        [discoveredPeripherals addObject:aPeripheral];
     }
 }
 
@@ -464,15 +504,34 @@ static void* workerThread(void* pArg)
     return NULL;
 }
 
-int bleConnect(const char* pName)
+int bleScan(unsigned int seconds)
 {
-    NSString* nameObject = nil;
+    [g_appDelegate performSelectorOnMainThread:@selector(handleScanStart:) withObject:nil waitUntilDone:YES];
+    sleep(seconds);
+    [g_appDelegate performSelectorOnMainThread:@selector(handleScanStop:) withObject:nil waitUntilDone:YES];
 
-    if (pName)
-        nameObject = [NSString stringWithUTF8String:pName];
-    [g_appDelegate performSelectorOnMainThread:@selector(handleDeviceConnect:) withObject:nameObject waitUntilDone:YES];
+    return [g_appDelegate deviceCount];
+}
+
+int bleGetDeviceId(int index, char* pBuffer, size_t bufferSize)
+{
+    if (index < 0 || index >= [g_appDelegate deviceCount] || !pBuffer || bufferSize == 0)
+        return BLE_ERROR_PARAM;
+
+    NSString* deviceId = [g_appDelegate deviceIdAtIndex:index];
+    strlcpy(pBuffer, [deviceId UTF8String], bufferSize);
+
+    return BLE_ERROR_NONE;
+}
+
+int bleConnect(int index)
+{
+    if (index < 0 || index >= [g_appDelegate deviceCount])
+        return BLE_ERROR_PARAM;
+
+    NSNumber* indexObject = [NSNumber numberWithInt:index];
+    [g_appDelegate performSelectorOnMainThread:@selector(handleDeviceConnect:) withObject:indexObject waitUntilDone:YES];
     [g_appDelegate waitForConnectToComplete];
-    [nameObject release];
 
     return [g_appDelegate error];
 }
@@ -488,14 +547,16 @@ int bleDisconnect()
 
 int bleSetToCurrentTime()
 {
-    struct timeval  time;
-    struct timezone zone;
+    return bleSetTime(time(NULL));
+}
+
+int bleSetTime(time_t t)
+{
     struct tm       local;
 
-    gettimeofday(&time, &zone);
-    localtime_r(&time.tv_sec, &local);
+    localtime_r(&t, &local);
 
-    int32_t seconds = time.tv_sec;
+    int32_t seconds = t;
     int32_t timeZone = local.tm_gmtoff / (60 * 60);
     uint8_t packetData[5];
     packetData[0] = seconds;

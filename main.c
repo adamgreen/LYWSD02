@@ -15,20 +15,27 @@
 */
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "ble.h"
+
+
+// How long to scan for LYWSD02 devices before setting the time on all of the devices found.
+#define SCAN_SECONDS 10
 
 
 
 static void displayUsage(void)
 {
     printf("\n"
-           "Usage: LYWSD02 [Celsius | C | Fahrenheit | F]\n"
+           "Usage: LYWSD02 [--test] [Celsius | C | Fahrenheit | F]\n"
            "Where:\n"
+           "  --test sets the time to 12:34 (today) instead of the current local time.\n"
            "  Celsius or C sets temperature display to be in Celsius.\n"
            "  Fahrenheit or F sets temperature display to be in Fahrenheit.\n"
            "\n"
-           "  The device's time will always be updated to match the current local time\n"
-           "  even if temperature setting is left blank.\n");
+           "  The time of all LYWSD02 devices found within %d seconds of scanning will\n"
+           "  always be updated to match the current local time even if temperature\n"
+           "  setting is left blank.\n", SCAN_SECONDS);
 }
 
 
@@ -47,6 +54,7 @@ typedef enum TemperatureUnits
 typedef struct CommandLineParams
 {
     TemperatureUnits tempUnits;
+    int              test;
 } CommandLineParams;
 
 static CommandLineParams g_params;
@@ -78,6 +86,7 @@ static int parseCommandLine(CommandLineParams* pParams, int argc, char** ppArgs)
     int result = 0;
 
     pParams->tempUnits = NONE;
+    pParams->test = 0;
 
     // Skip executable name.
     ppArgs++;
@@ -92,6 +101,10 @@ static int parseCommandLine(CommandLineParams* pParams, int argc, char** ppArgs)
         else if (0 == strcasecmp(pArg, "fahrenheit") || 0 == strcasecmp(pArg, "f"))
         {
             pParams->tempUnits = FAHRENHEIT;
+        }
+        else if (0 == strcmp(pArg, "--test"))
+        {
+            pParams->test = 1;
         }
         else
         {
@@ -108,21 +121,69 @@ static int parseCommandLine(CommandLineParams* pParams, int argc, char** ppArgs)
 
 
 
+static void updateDevice(int index);
+
+// Returns today's 12:34:00 local time, used by the --test option.
+static time_t testTime(void)
+{
+    time_t    now = time(NULL);
+    struct tm local;
+
+    localtime_r(&now, &local);
+    local.tm_hour = 12;
+    local.tm_min = 34;
+    local.tm_sec = 0;
+    local.tm_isdst = -1;
+    return mktime(&local);
+}
+
 void workerMain(void)
 {
-    int result = -1;
+    int count;
+    int i;
 
-    printf("Attempting to connect to LYWSD02 device...\n");
-    result = bleConnect(NULL);
+    printf("Scanning for LYWSD02 devices for %d seconds...\n", SCAN_SECONDS);
+    count = bleScan(SCAN_SECONDS);
+    if (count == 0)
+    {
+        fprintf(stderr, "error: No LYWSD02 device found.\n");
+        return;
+    }
+    printf("Found %d LYWSD02 device(s).\n", count);
+
+    for (i = 0 ; i < count ; i++)
+    {
+        updateDevice(i);
+    }
+}
+
+static void updateDevice(int index)
+{
+    int result = -1;
+    char deviceId[64];
+
+    if (bleGetDeviceId(index, deviceId, sizeof(deviceId)))
+        strcpy(deviceId, "?");
+
+    printf("Attempting to connect to LYWSD02 device %s...\n", deviceId);
+    result = bleConnect(index);
     if (result)
     {
-        fprintf(stderr, "error: Failed to connect to LYWSD02 device.\n");
+        fprintf(stderr, "error: Failed to connect to LYWSD02 device %s.\n", deviceId);
         goto Error;
     }
     printf("LYWSD02 device connected!\n");
 
-    printf("Updating time...\n");
-    result = bleSetToCurrentTime();
+    if (g_params.test)
+    {
+        printf("Setting time to 12:34 (test mode)...\n");
+        result = bleSetTime(testTime());
+    }
+    else
+    {
+        printf("Updating time...\n");
+        result = bleSetToCurrentTime();
+    }
     if (result == BLE_ERROR_NOT_CONNECTED)
     {
         printf("BLE connection lost!\n");

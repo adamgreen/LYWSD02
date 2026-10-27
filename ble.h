@@ -17,6 +17,9 @@
 #ifndef BLE_H_
 #define BLE_H_
 
+#include <stddef.h>
+#include <time.h>
+
 // Integer error codes that can be returned from most of these ble API functions.
 #define BLE_ERROR_NONE              0 // Success
 #define BLE_ERROR_CONNECT           1 // Connection to device failed.
@@ -39,9 +42,17 @@ void bleInitAndRun(void);
 // the main thread is used for handling OS X events via a NSApplicationDelegate.
 void workerMain(void);
 
-int bleConnect(const char* pName);
+// Scan for LYWSD02 devices for the given number of seconds.
+// Returns the number of devices found. These can then be accessed via an index in [0, count).
+int bleScan(unsigned int seconds);
+// Copy the identifier (a UUID string) of the device at the given index into pBuffer.
+int bleGetDeviceId(int index, char* pBuffer, size_t bufferSize);
+// Connect to the device at the given index. Call bleDisconnect() before connecting to another device.
+int bleConnect(int index);
 int bleDisconnect();
 int bleSetToCurrentTime();
+// Set the device to the given time (local timezone).
+int bleSetTime(time_t t);
 int bleSetToCelsius();
 int bleSetToFahrenheit();
 
